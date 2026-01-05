@@ -9,9 +9,17 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+type State int
+
+const (
+	input_state State = iota
+	view_state
+)
+
 type Styles struct {
 	borderColor lipgloss.Color
 	input       lipgloss.Style
+	view        lipgloss.Style
 }
 
 func DefaultStyles() *Styles {
@@ -19,16 +27,20 @@ func DefaultStyles() *Styles {
 
 	s.borderColor = lipgloss.Color("36")
 	s.input = lipgloss.NewStyle().BorderForeground(s.borderColor).BorderStyle(lipgloss.NormalBorder()).Padding(1).Width(80)
+	s.view = lipgloss.NewStyle().BorderForeground(s.borderColor).BorderStyle(lipgloss.RoundedBorder()).Padding(1).Width(80).Height(20)
 
 	return s
 }
 
 type Model struct {
 	result string
+	query  string
 	title  string
 
 	input  textinput.Model
 	styles *Styles
+
+	state State
 
 	width  int
 	height int
@@ -52,9 +64,12 @@ func (model Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			return model, tea.Quit
 		case "enter":
-			log.Printf("input: %s", model.input.Value())
-			model.input.SetValue("")
-			return model, nil
+			if model.state == input_state {
+				log.Printf("input: %s", model.input.Value())
+				model.query = model.input.Value()
+				model.state = view_state
+				return model, nil
+			}
 		}
 
 	}
@@ -66,18 +81,32 @@ func (model Model) View() string {
 	if model.width == 0 {
 		return "Loading..."
 	}
-	return lipgloss.Place(
-		model.width,
-		model.height,
-		lipgloss.Center,
-		lipgloss.Center,
 
-		lipgloss.JoinVertical(
+	switch model.state {
+	case input_state:
+		return lipgloss.Place(
+			model.width,
+			model.height,
 			lipgloss.Center,
-			model.title,
-			model.styles.input.Render(model.input.View()),
-		),
-	)
+			lipgloss.Center,
+
+			lipgloss.JoinVertical(
+				lipgloss.Center,
+				model.title,
+				model.styles.input.Render(model.input.View()),
+			),
+		)
+	case view_state:
+		return lipgloss.Place(
+			model.width,
+			model.height,
+			lipgloss.Center,
+			lipgloss.Center,
+			model.styles.view.Render(model.query),
+		)
+
+	}
+	return ""
 }
 
 func main() {
@@ -103,9 +132,12 @@ func New() *Model {
 	newInput.Focus()
 	newInput.Width = 74
 
+	newState := input_state
+
 	return &Model{
 		input:  newInput,
 		title:  "Website check",
 		styles: newStyles,
+		state:  newState,
 	}
 }
