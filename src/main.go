@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"log"
+	"net/http"
 	"os"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -36,6 +40,7 @@ type Model struct {
 	result string
 	query  string
 	title  string
+	err    error
 
 	input  textinput.Model
 	styles *Styles
@@ -45,6 +50,8 @@ type Model struct {
 	width  int
 	height int
 }
+
+type errMsg struct{ err error }
 
 func (model Model) Init() tea.Cmd {
 	return nil
@@ -66,12 +73,17 @@ func (model Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if model.state == input_state {
 				log.Printf("input: %s", model.input.Value())
-				model.query = model.input.Value()
 				model.state = view_state
-				return model, nil
+				return model, fetchCmd()
 			}
 		}
-
+	case errMsg:
+		model.err = msg.err
+		model.result = model.err.Error()
+		model.state = view_state
+	case *Json:
+		jsonData, _ := json.MarshalIndent(msg, "", " ")
+		model.result = string(jsonData)
 	}
 	model.input, cmd = model.input.Update(msg)
 	return model, cmd
@@ -102,7 +114,7 @@ func (model Model) View() string {
 			model.height,
 			lipgloss.Center,
 			lipgloss.Center,
-			model.styles.view.Render(model.query),
+			model.styles.view.Render(model.result),
 		)
 
 	}
@@ -140,4 +152,62 @@ func New() *Model {
 		styles: newStyles,
 		state:  newState,
 	}
+}
+
+func fetch() (*Json, tea.Msg) {
+
+	url := "https://dummyjson.com/auth/login"
+
+	body := []byte(`{
+	"username": "emilys",
+	"password": "emilyspass"
+	}`)
+
+	request, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
+	if err != nil {
+		return nil, errMsg{err}
+	}
+
+	request.Header.Add("Content-Type", "application/json")
+
+	client := &http.Client{}
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, errMsg{err}
+	}
+	defer response.Body.Close()
+
+	post := new(Json)
+
+	derr := json.NewDecoder(response.Body).Decode(post)
+	if derr != nil {
+		return nil, errMsg{derr}
+	}
+	if response.StatusCode != http.StatusOK {
+		return nil, errMsg{errors.New(response.Status)}
+	}
+
+	return post, nil
+}
+
+func fetchCmd() tea.Cmd {
+	return func() tea.Msg {
+		json, msg := fetch()
+		if msg != nil {
+			return msg
+		}
+		return json
+	}
+}
+
+type Json struct {
+	AccessToken  string `json:"accessToken"`
+	RefreshToken string `json:"refreshToken"`
+	ID           int    `json:"id"`
+	Username     string `json:"username"`
+	Email        string `json:"email"`
+	FirstName    string `json:"firstName"`
+	LastName     string `json:"lastName"`
+	Gender       string `json:"gender"`
+	Image        string `json:"image"`
 }
