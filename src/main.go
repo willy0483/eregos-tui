@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	_ "github.com/joho/godotenv/autoload"
 )
 
 type State int
@@ -81,7 +83,7 @@ func (model Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				model.state = loading_state
 				return model, tea.Batch(
 					model.spinner.Tick,
-					fetchCmd(),
+					fetchCmd(model.input.Value()),
 				)
 			}
 		}
@@ -149,6 +151,7 @@ func (model Model) View() string {
 }
 
 func main() {
+
 	f, err := tea.LogToFile("debug.log", "debug")
 	if err != nil {
 		log.Fatal(err)
@@ -185,13 +188,14 @@ func New() *Model {
 	}
 }
 
-func fetch() (*Json, tea.Msg) {
-	url := "https://dummyjson.com/auth/login"
+func fetch(query string) (*Json, tea.Msg) {
+	api_key := os.Getenv("API_KEY")
 
-	body := []byte(`{
-	"username": "emilys",
-	"password": "emilyspass"
-	}`)
+	url := "https://eregos.com/api/early"
+
+	body := []byte(fmt.Appendf(nil, `{
+	"query": "%s"
+	}`, query))
 
 	request, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
 	if err != nil {
@@ -199,6 +203,7 @@ func fetch() (*Json, tea.Msg) {
 	}
 
 	request.Header.Add("Content-Type", "application/json")
+	request.Header.Add("Authorization", api_key)
 
 	client := &http.Client{}
 	response, err := client.Do(request)
@@ -220,9 +225,9 @@ func fetch() (*Json, tea.Msg) {
 	return post, nil
 }
 
-func fetchCmd() tea.Cmd {
+func fetchCmd(query string) tea.Cmd {
 	return func() tea.Msg {
-		json, msg := fetch()
+		json, msg := fetch(query)
 		if msg != nil {
 			return msg
 		}
@@ -231,13 +236,12 @@ func fetchCmd() tea.Cmd {
 }
 
 type Json struct {
-	AccessToken  string `json:"accessToken"`
-	RefreshToken string `json:"refreshToken"`
-	ID           int    `json:"id"`
-	Username     string `json:"username"`
-	Email        string `json:"email"`
-	FirstName    string `json:"firstName"`
-	LastName     string `json:"lastName"`
-	Gender       string `json:"gender"`
-	Image        string `json:"image"`
+	Host        string `json:"host"`
+	Trustscore  int    `json:"trustscore"`
+	Trustsignal struct {
+		Domain     int `json:"domain"`
+		Ownership  int `json:"ownership"`
+		Encryption int `json:"encryption"`
+		Website    int `json:"website"`
+	} `json:"trustsignal"`
 }
