@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -17,6 +18,7 @@ type State int
 
 const (
 	input_state State = iota
+	loading_state
 	view_state
 )
 
@@ -24,6 +26,7 @@ type Styles struct {
 	borderColor lipgloss.Color
 	input       lipgloss.Style
 	view        lipgloss.Style
+	spinner     lipgloss.Style
 }
 
 func DefaultStyles() *Styles {
@@ -32,6 +35,7 @@ func DefaultStyles() *Styles {
 	s.borderColor = lipgloss.Color("36")
 	s.input = lipgloss.NewStyle().BorderForeground(s.borderColor).BorderStyle(lipgloss.NormalBorder()).Padding(1).Width(80)
 	s.view = lipgloss.NewStyle().BorderForeground(s.borderColor).BorderStyle(lipgloss.RoundedBorder()).Padding(1).Width(80).Height(20)
+	s.spinner = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(s.borderColor).Padding(1).Align(lipgloss.Center).Width(80).Height(20).AlignVertical(lipgloss.Center)
 
 	return s
 }
@@ -42,8 +46,9 @@ type Model struct {
 	title  string
 	err    error
 
-	input  textinput.Model
-	styles *Styles
+	spinner spinner.Model
+	input   textinput.Model
+	styles  *Styles
 
 	state State
 
@@ -73,9 +78,18 @@ func (model Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if model.state == input_state {
 				log.Printf("input: %s", model.input.Value())
-				model.state = view_state
-				return model, fetchCmd()
+				model.state = loading_state
+				return model, tea.Batch(
+					model.spinner.Tick,
+					fetchCmd(),
+				)
 			}
+		}
+	case spinner.TickMsg:
+		if model.state == loading_state {
+			var cmd tea.Cmd
+			model.spinner, cmd = model.spinner.Update(msg)
+			return model, cmd
 		}
 	case errMsg:
 		model.err = msg.err
@@ -84,6 +98,7 @@ func (model Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case *Json:
 		jsonData, _ := json.MarshalIndent(msg, "", " ")
 		model.result = string(jsonData)
+		model.state = view_state
 	}
 	model.input, cmd = model.input.Update(msg)
 	return model, cmd
@@ -108,6 +123,18 @@ func (model Model) View() string {
 				model.styles.input.Render(model.input.View()),
 			),
 		)
+
+	case loading_state:
+		return lipgloss.Place(
+			model.width,
+			model.height,
+			lipgloss.Center,
+			lipgloss.Center,
+			model.styles.spinner.Render(
+				model.spinner.View(),
+			),
+		)
+
 	case view_state:
 		return lipgloss.Place(
 			model.width,
@@ -144,18 +171,21 @@ func New() *Model {
 	newInput.Focus()
 	newInput.Width = 74
 
+	newSpinner := spinner.New()
+	newSpinner.Spinner = spinner.Monkey
+
 	newState := input_state
 
 	return &Model{
-		input:  newInput,
-		title:  "Website check",
-		styles: newStyles,
-		state:  newState,
+		input:   newInput,
+		title:   "Website check",
+		styles:  newStyles,
+		state:   newState,
+		spinner: newSpinner,
 	}
 }
 
 func fetch() (*Json, tea.Msg) {
-
 	url := "https://dummyjson.com/auth/login"
 
 	body := []byte(`{
